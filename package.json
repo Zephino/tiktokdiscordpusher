@@ -1,0 +1,17 @@
+{
+  "name": "tiktok-discord-pusher",
+  "version": "1.0.0",
+  "description": "Discord bot that posts an alert when TikTok creators go live",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node src/check.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  }
+}
