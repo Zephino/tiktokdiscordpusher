@@ -96,20 +96,91 @@ The bot has to run 24/7 to catch streams. Any always-on machine works, for examp
 a VPS, a Raspberry Pi, or a host like Railway or Fly.io. Use a process manager such as
 `pm2 start src/index.js --name tiktok-bot` so it restarts if it crashes.
 
-## How live detection works (and its limits)
+## How the bot gets live info from TikTok
 
-TikTok has **no official API** for live status, so the bot uses the endpoints the
-tiktok.com website uses:
+TikTok has **no official API** for live status. The bot doesn't log in or use an
+official API. It sends the same requests your browser sends when you open
+tiktok.com, then reads the answers. All of this is in `src/tiktok.js`, and it tries
+two methods in order.
 
-1. `tiktok.com/api-live/user/room/` (fast JSON).
-2. Fallback: scrape `tiktok.com/@user/live` and confirm with webcast's `check_alive`.
+### Method 1: TikTok's own live-status URL (tried first)
 
-By default the bot checks every 90 seconds (`POLL_INTERVAL_SECONDS`, minimum 30).
-If TikTok starts blocking your server's IP (`/tiktok check` fails), log into TikTok
-in a browser, copy the value of the `sessionid` cookie, and put it in
-`TIKTOK_SESSIONID`. Use a throwaway account for this. Because these are unofficial
-endpoints, TikTok can change them at any time. If that happens, the code to update
-is in `src/tiktok.js`.
+When you open someone's profile, the tiktok.com page quietly asks this URL whether
+they're live:
+
+```
+https://www.tiktok.com/api-live/user/room/?aid=1988&app_name=tiktok_web&device_platform=web_pc&sourceType=54&uniqueId=bob
+```
+
+The extra settings (`aid=1988` and the rest) are just copied from what the website
+itself sends. TikTok answers with JSON, roughly like this:
+
+```json
+{
+  "statusCode": 0,
+  "data": {
+    "user":     { "roomId": "7300000000000000001", "nickname": "Bob" },
+    "liveRoom": { "status": 2, "title": "Chatting", "liveRoomStats": { "userCount": 42 } }
+  }
+}
+```
+
+The bot treats someone as **live** when they have a `roomId` **and** `status` is
+`2`. Status `4` means the stream ended. The title, viewer count and cover image for
+the Discord embed come from this same answer. If `statusCode` isn't `0` (for
+example "user not found"), the bot moves on to method 2.
+
+### Method 2: read the live page itself (backup)
+
+If method 1 fails or gets blocked, the bot downloads the normal web page
+`https://www.tiktok.com/@bob/live`. TikTok builds that page with a big block of
+JSON hidden in it:
+
+```html
+<script id="SIGI_STATE" type="application/json">{ ...all the page's data... }</script>
+```
+
+(Newer versions of the page call it `__UNIVERSAL_DATA_FOR_REHYDRATION__`, so the
+bot looks for both.) The bot cuts that block out with a regular expression and
+reads the same `roomId` and `status` from inside it.
+
+If the layout has changed and that doesn't work, it falls back again. It searches
+the raw page text for `"roomId":"12345"`, then asks a third URL whether that room
+is actually live:
+
+```
+https://webcast.tiktok.com/webcast/room/check_alive/?aid=1988&room_ids=12345
+→ { "data": [ { "alive": true } ] }
+```
+
+### Looking like a browser
+
+Websites often block requests that look like bots, so every request includes:
+
+- a **User-Agent** copied from Chrome on Windows,
+- a **Referer** of `tiktok.com`, so the request looks like it came from TikTok's own site,
+- optionally a **`sessionid` cookie**, so it looks like a logged-in user (see below).
+
+### Limits
+
+- **These URLs aren't official.** They're just how tiktok.com happens to work
+  today, and TikTok can rename them, move the data or block cloud servers whenever
+  it likes. That's why there are backups, and why the bot logs an error instead of
+  guessing when every method fails. The code to update is in `src/tiktok.js`.
+- **Blocked servers.** If TikTok starts blocking your server (`/tiktok check`
+  fails), log into TikTok in a browser, copy the value of the `sessionid` cookie,
+  and put it in `TIKTOK_SESSIONID` in `.env`. Use a throwaway account for this.
+- **Alerts can be a little late.** The bot checks every 90 seconds by default
+  (`POLL_INTERVAL_SECONDS`, minimum 30), so an alert can arrive up to about a
+  minute and a half after the stream starts.
+
+### Finding these URLs yourself
+
+Open a live creator's page on tiktok.com, press **F12**, go to the **Network** tab
+and refresh the page. Type `room` or `live` into the filter, click a request and
+open the **Response** tab. You'll see the same JSON the bot reads. If TikTok
+changes something, this is how to find the new URL or field and update
+`src/tiktok.js`. If you do, add a test to `test/tiktok.test.js` with the new format.
 
 ## Tests
 
