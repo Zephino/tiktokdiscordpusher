@@ -1,7 +1,21 @@
+// =============================================================================
+// Tests — run with `npm test`.
+//
+// Tests are small programs that check our code gives the right answers. Here we
+// feed the TikTok parsers FAKE responses (shaped like TikTok's real ones) and
+// check the results. No internet needed, so they run in a split second.
+//
+// If TikTok ever changes its format and you fix tiktok.js, add a test here with
+// the new format so you know the fix works and keeps working.
+// =============================================================================
+
+// node:test is Node's built-in test runner. `assert` checks that values are
+// what we expect — if not, the test fails and tells you what was different.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeUsername, parseRoomApi, parseLivePage } from '../src/tiktok.js';
 
+// Cleaning up usernames typed in different ways.
 test('normalizeUsername', () => {
   assert.equal(normalizeUsername('@Some.User_1'), 'some.user_1');
   assert.equal(normalizeUsername('https://www.tiktok.com/@cool.guy/live?lang=en'), 'cool.guy');
@@ -9,6 +23,7 @@ test('normalizeUsername', () => {
   assert.equal(normalizeUsername(''), null);
 });
 
+// A fake "they're live" response from method 1.
 test('parseRoomApi: live', () => {
   const info = parseRoomApi('bob', {
     statusCode: 0,
@@ -25,6 +40,7 @@ test('parseRoomApi: live', () => {
   assert.equal(info.url, 'https://www.tiktok.com/@bob/live');
 });
 
+// A fake "not live" response from method 1.
 test('parseRoomApi: offline', () => {
   const info = parseRoomApi('bob', {
     statusCode: 0,
@@ -33,10 +49,12 @@ test('parseRoomApi: offline', () => {
   assert.equal(info.live, false);
 });
 
+// TikTok returning an error code should throw, so the bot falls back to method 2.
 test('parseRoomApi: error code throws', () => {
   assert.throws(() => parseRoomApi('bob', { statusCode: 19881007, message: 'user_not_found' }));
 });
 
+// Method 2, older page format: data in <script id="SIGI_STATE">.
 test('parseLivePage: SIGI_STATE', () => {
   const state = {
     LiveRoom: {
@@ -52,6 +70,7 @@ test('parseLivePage: SIGI_STATE', () => {
   assert.equal(info.roomId, '123');
 });
 
+// Method 2, newer page format: data in <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">.
 test('parseLivePage: universal data', () => {
   const data = {
     __DEFAULT_SCOPE__: {
@@ -62,6 +81,8 @@ test('parseLivePage: universal data', () => {
   assert.equal(parseLivePage('x', html).live, false);
 });
 
+// Method 2, last resort: only a roomId in the HTML. Status is unknown, so the
+// bot will ask check_alive afterwards.
 test('parseLivePage: regex fallback leaves status for check_alive', () => {
   const info = parseLivePage('x', '<div>"roomId":"555"</div>');
   assert.equal(info.roomId, '555');
